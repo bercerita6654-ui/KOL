@@ -76,7 +76,7 @@
     </div>
 
     <!-- Tabel Data -->
-    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden relative min-h-[400px]">
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden relative min-h-[400px] flex flex-col">
       
       <!-- Loading State -->
       <div id="loading-state" class="absolute inset-0 z-10 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center">
@@ -109,7 +109,7 @@
       </div>
 
       <!-- Table Wrapper -->
-      <div class="overflow-x-auto h-full">
+      <div class="overflow-x-auto flex-grow">
         <table class="min-w-full divide-y divide-gray-200">
           <thead class="bg-gray-50" id="table-head">
             <!-- Headers render here -->
@@ -120,11 +120,27 @@
         </table>
       </div>
       
-    </div>
-    
-    <!-- Footer info -->
-    <div id="footer-info" class="flex justify-between items-center px-2 text-sm text-gray-500">
-      <p>Menampilkan <span id="count-filtered" class="font-semibold text-gray-900">0</span> dari <span id="count-total">0</span> total data</p>
+      <!-- Footer info & Paginasi -->
+      <div id="footer-info" class="flex flex-col sm:flex-row justify-between items-center px-6 py-4 bg-gray-50 border-t border-gray-100 gap-4">
+        <div class="text-sm text-gray-500">
+          Menampilkan baris <span id="count-start" class="font-semibold text-gray-900">0</span> - <span id="count-end" class="font-semibold text-gray-900">0</span> dari <span id="count-filtered" class="font-semibold text-gray-900">0</span> data
+        </div>
+        
+        <div class="flex items-center gap-2">
+          <button id="btn-prev" class="p-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center gap-1">
+            <i data-lucide="chevron-left" class="w-4 h-4"></i> Kembali
+          </button>
+          
+          <span id="page-info" class="px-3 py-1 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg">
+            Hal 1 / 1
+          </span>
+          
+          <button id="btn-next" class="p-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center gap-1">
+            Lanjut <i data-lucide="chevron-right" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+
     </div>
 
   </div>
@@ -138,7 +154,9 @@
       error: null,
       filterType: 'all',
       searchQuery: '',
-      dateColumn: null
+      dateColumn: null,
+      currentPage: 1,      // Paginasi: Halaman saat ini
+      itemsPerPage: 100    // Paginasi: Maksimal 100 baris
     };
 
     const csvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSRF8nmM7w3GNkJrtcRkq5eTcys9hf5HQZRixygq0B8nUUVDO-rdDCUQ5MffcoYR2_UxYtWxuCzDqLi/pub?gid=0&single=true&output=csv';
@@ -258,18 +276,15 @@
       if (state.loading) iconRefresh.classList.add('animate-spin');
       else iconRefresh.classList.remove('animate-spin');
 
-      // Update Filter Buttons (Tampilan dan Disable)
+      // Update Filter Buttons
       filterBtns.forEach(btn => {
         const filterVal = btn.getAttribute('data-filter');
-        
-        // Atur Kelas Aktif
         if (state.filterType === filterVal) {
           btn.className = 'filter-btn px-4 py-2 rounded-full text-sm font-medium transition-colors bg-blue-600 text-white shadow-md';
         } else {
           btn.className = 'filter-btn px-4 py-2 rounded-full text-sm font-medium transition-colors bg-gray-100 text-gray-600 hover:bg-gray-200';
         }
 
-        // Atur Disable jika tidak ada kolom tanggal
         if (!state.dateColumn && filterVal !== 'all') {
           btn.disabled = true;
           btn.title = "Kolom tanggal tidak ditemukan";
@@ -282,20 +297,18 @@
         }
       });
 
-      // Visibilitas Peringatan Tanggal
       if (!state.dateColumn && !state.loading && !state.error && state.data.length > 0) {
         elWarning.classList.remove('hidden');
       } else {
         elWarning.classList.add('hidden');
       }
 
-      // Tampilan Berdasarkan Status
       if (state.loading) {
         elLoading.classList.remove('hidden');
         elError.classList.add('hidden');
         elEmpty.classList.add('hidden');
         elFooter.classList.add('hidden');
-        return; // Jangan render tabel dulu
+        return; 
       }
 
       if (state.error) {
@@ -344,6 +357,18 @@
         );
       }
 
+      // Hitung Paginasi
+      const totalPages = Math.ceil(filteredData.length / state.itemsPerPage) || 1;
+      
+      // Jika halaman saat ini melebihi total halaman (misal karena pencarian), kembalikan ke maksimal halaman
+      if (state.currentPage > totalPages) {
+        state.currentPage = totalPages;
+      }
+
+      const startIndex = (state.currentPage - 1) * state.itemsPerPage;
+      const endIndex = Math.min(startIndex + state.itemsPerPage, filteredData.length);
+      const paginatedData = filteredData.slice(startIndex, endIndex);
+
       // Render Empty State atau Table
       if (filteredData.length === 0) {
         elEmpty.classList.remove('hidden');
@@ -353,6 +378,7 @@
       } else {
         elEmpty.classList.add('hidden');
         elFooter.classList.remove('hidden');
+        elFooter.classList.add('flex'); // Menjaga tipe flex dari tailwind
 
         // Render Headers
         let headersHtml = `<tr><th scope="col" class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider sticky top-0 bg-gray-50 z-0">No</th>`;
@@ -367,12 +393,33 @@
 
         // Render Rows
         let rowsHtml = '';
-        filteredData.forEach((row, rowIndex) => {
+        paginatedData.forEach((row, index) => {
+          const actualRowIndex = startIndex + index + 1;
           rowsHtml += `<tr class="hover:bg-gray-50 transition-colors">
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-medium">${rowIndex + 1}</td>`;
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-medium">${actualRowIndex}</td>`;
           
           state.headers.forEach(header => {
-            rowsHtml += `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${escapeHTML(row[header] || '-')}</td>`;
+            let cellContent = row[header] || '-';
+            let tdClass = "px-6 py-4 text-sm text-gray-700 whitespace-nowrap";
+            
+            // Logika Mengecilkan Kolom Maps/Tautan
+            // Jika nama kolom mengandung map/peta/lokasi ATAU jika isi teks berupa http url panjang
+            const isMapHeader = /map|peta|lokasi|link|url/i.test(header);
+            const isUrl = String(cellContent).trim().startsWith('http');
+
+            if (isMapHeader || isUrl || cellContent.length > 50) {
+               tdClass += " max-w-[200px] truncate"; // Batasi lebar maksimal 200px dan potong teks
+            }
+
+            let cellHtml = escapeHTML(cellContent);
+            if (isUrl) {
+              // Ubah menjadi link yang dapat diklik dengan tulisan disingkat agar kolom lebih luas
+              cellHtml = `<a href="${encodeURI(cellContent.trim())}" target="_blank" class="text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1 font-medium" title="${escapeHTML(cellContent)}">
+                <i data-lucide="external-link" class="w-3 h-3"></i> Buka Link / Peta
+              </a>`;
+            }
+
+            rowsHtml += `<td class="${tdClass}" title="${!isUrl ? escapeHTML(cellContent) : ''}">${cellHtml}</td>`;
           });
           
           rowsHtml += `</tr>`;
@@ -380,36 +427,56 @@
         elTableBody.innerHTML = rowsHtml;
       }
 
-      // Update Angka di Footer
+      // Update Informasi Paginasi
+      document.getElementById('count-start').textContent = filteredData.length > 0 ? startIndex + 1 : 0;
+      document.getElementById('count-end').textContent = endIndex;
       document.getElementById('count-filtered').textContent = filteredData.length;
-      document.getElementById('count-total').textContent = state.data.length;
+      
+      document.getElementById('page-info').textContent = `Hal ${state.currentPage} / ${totalPages}`;
+      
+      const btnPrev = document.getElementById('btn-prev');
+      const btnNext = document.getElementById('btn-next');
+      
+      btnPrev.disabled = state.currentPage <= 1;
+      btnNext.disabled = state.currentPage >= totalPages;
 
-      // Inisialisasi ulang Ikon Lucide untuk elemen DOM yang baru dirender
+      // Inisialisasi ulang Ikon Lucide
       lucide.createIcons();
     };
 
     // Event Listeners
     document.addEventListener('DOMContentLoaded', () => {
-      // Init ikon pertama kali
       lucide.createIcons();
       
-      // Tombol muat ulang
       document.getElementById('btn-refresh').addEventListener('click', fetchData);
       document.getElementById('btn-retry').addEventListener('click', fetchData);
 
-      // Input pencarian
       document.getElementById('input-search').addEventListener('input', (e) => {
         state.searchQuery = e.target.value;
+        state.currentPage = 1; // Reset halaman ke 1 setiap mencari sesuatu
         renderUI();
       });
 
-      // Tombol filter
       document.querySelectorAll('.filter-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           if (btn.disabled) return;
           state.filterType = e.target.getAttribute('data-filter');
+          state.currentPage = 1; // Reset halaman ke 1 setiap ganti filter
           renderUI();
         });
+      });
+
+      // Event Paginasi
+      document.getElementById('btn-prev').addEventListener('click', () => {
+        if (state.currentPage > 1) {
+          state.currentPage--;
+          renderUI();
+        }
+      });
+
+      document.getElementById('btn-next').addEventListener('click', () => {
+        state.currentPage++;
+        renderUI();
       });
 
       // Mulai ambil data
