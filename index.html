@@ -161,6 +161,8 @@
 
     const csvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSRF8nmM7w3GNkJrtcRkq5eTcys9hf5HQZRixygq0B8nUUVDO-rdDCUQ5MffcoYR2_UxYtWxuCzDqLi/pub?gid=0&single=true&output=csv';
 
+    const scriptUrl = 'https://script.google.com/macros/s/AKfycbyN2cMno35OwmbbyBL7UA5XN1YI4FYBUNxGqBnTxXk8Zox-l-4D9_djtMpwCCDu4y1FMg/exec'; // Tautan Web App Google Script Anda
+
     // Utilitas
     const escapeHTML = (str) => {
       return String(str)
@@ -247,8 +249,11 @@
         const extractedHeaders = rows[0].map(h => h.trim());
         state.headers = extractedHeaders;
 
-        const parsedData = rows.slice(1).map(row => {
-          const obj = {};
+        const parsedData = rows.slice(1).map((row, index) => {
+          const obj = {
+            _id: 'row_' + index + '_' + Date.now(), // ID unik per baris untuk fitur Delete
+            sheetRow: index + 2 // Menangkap baris di Google Sheet (Header = 1, Data mulai dari 2)
+          };
           extractedHeaders.forEach((h, i) => {
             obj[h] = row[i] !== undefined ? row[i].trim() : '';
           });
@@ -408,8 +413,8 @@
       // Hitung Paginasi
       const totalPages = Math.ceil(filteredData.length / state.itemsPerPage) || 1;
       
-      // Jika halaman saat ini melebihi total halaman (misal karena pencarian), kembalikan ke maksimal halaman
-      if (state.currentPage > totalPages) {
+      // Jika halaman saat ini melebihi total halaman (misal karena pencarian/penghapusan), kembalikan ke maksimal halaman
+      if (state.currentPage > totalPages && totalPages > 0) {
         state.currentPage = totalPages;
       }
 
@@ -437,6 +442,8 @@
             ${header === 'Jam' ? '<i data-lucide="clock" class="inline-block w-3 h-3 ml-1 text-orange-500"></i>' : ''}
           </th>`;
         });
+        // Tambahan Header untuk Kolom Aksi
+        headersHtml += `<th scope="col" class="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider sticky top-0 bg-gray-50 z-0 whitespace-nowrap">Aksi</th>`;
         headersHtml += `</tr>`;
         elTableHead.innerHTML = headersHtml;
 
@@ -473,6 +480,13 @@
 
             rowsHtml += `<td class="${tdClass}" title="${!isUrl ? escapeHTML(cellContent) : ''}">${cellHtml}</td>`;
           });
+          
+          // Tambahan Cell untuk Tombol Delete
+          rowsHtml += `<td class="px-6 py-4 text-center whitespace-nowrap">
+            <button data-id="${row._id}" data-sheet-row="${row.sheetRow}" class="delete-btn inline-flex items-center justify-center p-2 bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700 rounded-lg transition" title="Hapus Baris">
+              <i data-lucide="trash-2" class="w-4 h-4"></i>
+            </button>
+          </td>`;
           
           rowsHtml += `</tr>`;
         });
@@ -529,6 +543,65 @@
       document.getElementById('btn-next').addEventListener('click', () => {
         state.currentPage++;
         renderUI();
+      });
+
+      // Event Hapus Data (Delete)
+      document.getElementById('table-body').addEventListener('click', async (e) => {
+        const deleteBtn = e.target.closest('.delete-btn');
+        if (deleteBtn) {
+          const rowId = deleteBtn.getAttribute('data-id');
+          const sheetRow = parseInt(deleteBtn.getAttribute('data-sheet-row'));
+          const password = prompt("Masukkan password untuk menghapus baris ini secara PERMANEN:");
+          
+          if (password === '123') {
+            if (scriptUrl === 'URL_WEB_APP_ANDA_DISINI') {
+              alert("Gagal: Anda belum memasukkan URL Web App Google Script di dalam kode (cari variabel scriptUrl di sekitar baris ke-475).");
+              return;
+            }
+
+            // Ubah tombol jadi status loading
+            const originalContent = deleteBtn.innerHTML;
+            deleteBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i>';
+            deleteBtn.disabled = true;
+
+            try {
+              // Kirim request ke Google Apps Script
+              const formData = new FormData();
+              formData.append('action', 'delete');
+              formData.append('rowNumber', sheetRow);
+
+              const response = await fetch(scriptUrl, { method: 'POST', body: formData });
+              const result = await response.json();
+
+              if (result.status === 'success') {
+                // Hapus data yang id-nya sesuai dari array utama
+                state.data = state.data.filter(item => item._id !== rowId);
+                
+                // PENTING: Geser referensi sheetRow untuk data yang ada di bawahnya
+                // Karena jika baris 3 dihapus, baris ke-4 sekarang menjadi baris ke-3 di Spreadsheet
+                state.data.forEach(item => {
+                  if (item.sheetRow > sheetRow) {
+                    item.sheetRow = item.sheetRow - 1;
+                  }
+                });
+
+                renderUI();
+                alert("Berhasil dihapus dari Google Sheets!");
+              } else {
+                throw new Error(result.message);
+              }
+            } catch (error) {
+              alert("Gagal menghapus: " + error.message);
+              deleteBtn.innerHTML = originalContent;
+              deleteBtn.disabled = false;
+              lucide.createIcons();
+            }
+
+          } else if (password !== null) {
+            // Jika diketik salah tapi tidak ditekan cancel
+            alert("Password salah! Penghapusan dibatalkan.");
+          }
+        }
       });
 
       // Mulai ambil data
