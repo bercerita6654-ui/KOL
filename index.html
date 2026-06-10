@@ -232,24 +232,28 @@
     };
 
     // Fungsi Mengambil Data
-    const fetchData = async () => {
-      state.loading = true;
-      state.error = null;
-      renderUI();
+    const fetchData = async (isAutoRefresh = false) => {
+      if (!isAutoRefresh) {
+        state.loading = true;
+        state.error = null;
+        renderUI();
+      }
 
       try {
-        const response = await fetch(csvUrl);
+        // Tambahkan cache buster agar browser selalu menarik data terbaru
+        const response = await fetch(csvUrl + '&_t=' + new Date().getTime(), { cache: 'no-store' });
         if (!response.ok) throw new Error('Gagal mengambil data dari server.');
         
         const text = await response.text();
         const rows = parseCSV(text).filter(row => row.length > 0 && row.some(cell => cell.trim() !== ''));
         
-        if (rows.length < 2) throw new Error('Data CSV kosong atau format tidak valid.');
+        // Perbaikan: Jangan memicu error jika baris data kosong (hanya tersisa header baris 1)
+        if (rows.length === 0) throw new Error('Data CSV sama sekali kosong atau format tidak valid.');
 
         const extractedHeaders = rows[0].map(h => h.trim());
         state.headers = extractedHeaders;
 
-        const parsedData = rows.slice(1).map((row, index) => {
+        const parsedData = rows.length > 1 ? rows.slice(1).map((row, index) => {
           const obj = {
             _id: 'row_' + index + '_' + Date.now(), // ID unik per baris untuk fitur Delete
             sheetRow: index + 2 // Menangkap baris di Google Sheet (Header = 1, Data mulai dari 2)
@@ -258,7 +262,7 @@
             obj[h] = row[i] !== undefined ? row[i].trim() : '';
           });
           return obj;
-        });
+        }) : [];
 
         state.data = parsedData;
 
@@ -306,9 +310,15 @@
         }
 
       } catch (err) {
-        state.error = err.message;
+        if (!isAutoRefresh) {
+          state.error = err.message;
+        } else {
+          console.error("Gagal auto-refresh: ", err.message);
+        }
       } finally {
-        state.loading = false;
+        if (!isAutoRefresh) {
+          state.loading = false;
+        }
         renderUI();
       }
     };
@@ -514,8 +524,9 @@
     document.addEventListener('DOMContentLoaded', () => {
       lucide.createIcons();
       
-      document.getElementById('btn-refresh').addEventListener('click', fetchData);
-      document.getElementById('btn-retry').addEventListener('click', fetchData);
+      // Tombol muat ulang manual (dengan loading overlay)
+      document.getElementById('btn-refresh').addEventListener('click', () => fetchData(false));
+      document.getElementById('btn-retry').addEventListener('click', () => fetchData(false));
 
       document.getElementById('input-search').addEventListener('input', (e) => {
         state.searchQuery = e.target.value;
@@ -604,8 +615,13 @@
         }
       });
 
-      // Mulai ambil data
-      fetchData();
+      // Mulai ambil data pertama kali dengan loading screen
+      fetchData(false);
+
+      // Mulai Timer Auto Refresh setiap 5 detik (5000 ms) di latar belakang
+      setInterval(() => {
+        fetchData(true);
+      }, 5000);
     });
   </script>
 
