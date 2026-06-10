@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tabel Data Interaktif</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <style>
+    /* Menyembunyikan elemen yang belum siap */
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans min-h-screen p-4 sm:p-8">
+
+  <div class="max-w-7xl mx-auto space-y-6">
+    
+    <!-- Header App -->
+    <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <i data-lucide="refresh-cw" class="w-6 h-6 text-blue-600"></i>
+          Tabel Data Interaktif
+        </h1>
+        <p class="text-gray-500 text-sm mt-1">
+          Menampilkan data langsung dari Google Sheets.
+        </p>
+      </div>
+      
+      <button 
+        id="btn-refresh"
+        class="flex items-center gap-2 bg-blue-50 text-blue-600 px-4 py-2 rounded-lg hover:bg-blue-100 transition font-medium text-sm w-max"
+      >
+        <i data-lucide="refresh-cw" id="icon-refresh" class="w-4 h-4"></i>
+        Muat Ulang
+      </button>
+    </div>
+
+    <!-- Kontrol Filter & Pencarian -->
+    <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col xl:flex-row justify-between gap-4">
+      
+      <div class="flex flex-wrap items-center gap-2" id="filter-container">
+        <span class="text-sm font-semibold text-gray-500 mr-2 flex items-center gap-1">
+          <i data-lucide="filter" class="w-4 h-4"></i> Filter Waktu:
+        </span>
+        <button data-filter="all" class="filter-btn px-4 py-2 rounded-full text-sm font-medium transition-colors bg-blue-600 text-white shadow-md">Semua</button>
+        <button data-filter="today" class="filter-btn px-4 py-2 rounded-full text-sm font-medium transition-colors bg-gray-100 text-gray-600 hover:bg-gray-200">Hari Ini</button>
+        <button data-filter="month" class="filter-btn px-4 py-2 rounded-full text-sm font-medium transition-colors bg-gray-100 text-gray-600 hover:bg-gray-200">Bulan Ini</button>
+        <button data-filter="year" class="filter-btn px-4 py-2 rounded-full text-sm font-medium transition-colors bg-gray-100 text-gray-600 hover:bg-gray-200">Tahun Ini</button>
+      </div>
+
+      <div class="relative max-w-md w-full">
+        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+          <i data-lucide="search" class="h-5 w-5 text-gray-400"></i>
+        </div>
+        <input
+          type="text"
+          id="input-search"
+          placeholder="Cari data..."
+          class="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-xl leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition"
+        />
+      </div>
+    </div>
+
+    <!-- Area Notifikasi Error / Info -->
+    <div id="warning-state" class="hidden bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-lg flex gap-3">
+      <i data-lucide="alert-circle" class="w-5 h-5 text-yellow-600 flex-shrink-0"></i>
+      <p class="text-sm text-yellow-700">
+        Sistem tidak dapat menemukan kolom tanggal ("Date" atau "Tanggal") secara otomatis. Filter waktu mungkin dinonaktifkan.
+      </p>
+    </div>
+
+    <!-- Tabel Data -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden relative min-h-[400px]">
+      
+      <!-- Loading State -->
+      <div id="loading-state" class="absolute inset-0 z-10 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center">
+        <i data-lucide="loader-2" class="w-10 h-10 text-blue-600 animate-spin mb-3"></i>
+        <p class="text-gray-600 font-medium">Memuat data...</p>
+      </div>
+
+      <!-- Error State -->
+      <div id="error-state" class="hidden absolute inset-0 z-10 bg-white flex flex-col items-center justify-center p-6 text-center">
+        <i data-lucide="alert-circle" class="w-12 h-12 text-red-500 mb-3"></i>
+        <h3 class="text-lg font-bold text-gray-900 mb-1">Gagal Memuat Data</h3>
+        <p id="error-message" class="text-gray-500 mb-4"></p>
+        <button 
+          id="btn-retry"
+          class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition"
+        >
+          Coba Lagi
+        </button>
+      </div>
+
+      <!-- Empty State -->
+      <div id="empty-state" class="hidden absolute inset-0 z-10 bg-white flex flex-col items-center justify-center p-6 text-center">
+        <div class="bg-gray-100 p-4 rounded-full mb-3">
+          <i data-lucide="search" class="w-8 h-8 text-gray-400"></i>
+        </div>
+        <h3 class="text-lg font-bold text-gray-900 mb-1">Data Tidak Ditemukan</h3>
+        <p class="text-gray-500">
+          Tidak ada data yang cocok dengan filter atau pencarian Anda.
+        </p>
+      </div>
+
+      <!-- Table Wrapper -->
+      <div class="overflow-x-auto h-full">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50" id="table-head">
+            <!-- Headers render here -->
+          </thead>
+          <tbody class="bg-white divide-y divide-gray-100" id="table-body">
+            <!-- Rows render here -->
+          </tbody>
+        </table>
+      </div>
+      
+    </div>
+    
+    <!-- Footer info -->
+    <div id="footer-info" class="flex justify-between items-center px-2 text-sm text-gray-500">
+      <p>Menampilkan <span id="count-filtered" class="font-semibold text-gray-900">0</span> dari <span id="count-total">0</span> total data</p>
+    </div>
+
+  </div>
+
+  <script>
+    // State Aplikasi
+    const state = {
+      data: [],
+      headers: [],
+      loading: true,
+      error: null,
+      filterType: 'all',
+      searchQuery: '',
+      dateColumn: null
+    };
+
+    const csvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSRF8nmM7w3GNkJrtcRkq5eTcys9hf5HQZRixygq0B8nUUVDO-rdDCUQ5MffcoYR2_UxYtWxuCzDqLi/pub?gid=0&single=true&output=csv';
+
+    // Utilitas
+    const escapeHTML = (str) => {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    };
+
+    const parseCSV = (str) => {
+      const arr = [];
+      let quote = false;
+      let row = 0;
+      let col = 0;
+      for (let c = 0; c < str.length; c++) {
+        let cc = str[c], nc = str[c + 1];
+        arr[row] = arr[row] || [];
+        arr[row][col] = arr[row][col] || '';
+
+        if (cc === '"' && quote && nc === '"') { arr[row][col] += cc; ++c; continue; }
+        if (cc === '"') { quote = !quote; continue; }
+        if (cc === ',' && !quote) { ++col; continue; }
+        if (cc === '\r' && nc === '\n' && !quote) { ++row; col = 0; ++c; continue; }
+        if (cc === '\n' && !quote) { ++row; col = 0; continue; }
+        if (cc === '\r' && !quote) { ++row; col = 0; continue; }
+
+        arr[row][col] += cc;
+      }
+      return arr;
+    };
+
+    const parseDateString = (dateStr) => {
+      if (!dateStr) return null;
+      let d = new Date(dateStr);
+      if (!isNaN(d.getTime())) return d;
+
+      const parts = dateStr.split(/[-/\s]/);
+      if (parts.length >= 3) {
+        const p1 = parseInt(parts[0], 10);
+        const p2 = parseInt(parts[1], 10);
+        const p3 = parseInt(parts[2], 10);
+        
+        if (p1 > 1000) d = new Date(p1, p2 - 1, p3);
+        else d = new Date(p3, p2 - 1, p1);
+        
+        if (!isNaN(d.getTime())) return d;
+      }
+      return null;
+    };
+
+    // Fungsi Mengambil Data
+    const fetchData = async () => {
+      state.loading = true;
+      state.error = null;
+      renderUI();
+
+      try {
+        const response = await fetch(csvUrl);
+        if (!response.ok) throw new Error('Gagal mengambil data dari server.');
+        
+        const text = await response.text();
+        const rows = parseCSV(text).filter(row => row.length > 0 && row.some(cell => cell.trim() !== ''));
+        
+        if (rows.length < 2) throw new Error('Data CSV kosong atau format tidak valid.');
+
+        const extractedHeaders = rows[0].map(h => h.trim());
+        state.headers = extractedHeaders;
+
+        const parsedData = rows.slice(1).map(row => {
+          const obj = {};
+          extractedHeaders.forEach((h, i) => {
+            obj[h] = row[i] !== undefined ? row[i].trim() : '';
+          });
+          return obj;
+        });
+
+        state.data = parsedData;
+
+        // Mendeteksi kolom tanggal otomatis
+        let detectedDateCol = extractedHeaders.find(h => /tanggal|date|waktu|time|timestamp/i.test(h));
+        if (!detectedDateCol) {
+          for (const h of extractedHeaders) {
+            if (parsedData.length > 0 && parseDateString(parsedData[0][h])) {
+              detectedDateCol = h;
+              break;
+            }
+          }
+        }
+        state.dateColumn = detectedDateCol;
+
+      } catch (err) {
+        state.error = err.message;
+      } finally {
+        state.loading = false;
+        renderUI();
+      }
+    };
+
+    // Fungsi Render UI
+    const renderUI = () => {
+      const elLoading = document.getElementById('loading-state');
+      const elError = document.getElementById('error-state');
+      const elEmpty = document.getElementById('empty-state');
+      const elWarning = document.getElementById('warning-state');
+      const elTableHead = document.getElementById('table-head');
+      const elTableBody = document.getElementById('table-body');
+      const elFooter = document.getElementById('footer-info');
+      const iconRefresh = document.getElementById('icon-refresh');
+      const filterBtns = document.querySelectorAll('.filter-btn');
+
+      // Update Ikon Refresh
+      if (state.loading) iconRefresh.classList.add('animate-spin');
+      else iconRefresh.classList.remove('animate-spin');
+
+      // Update Filter Buttons (Tampilan dan Disable)
+      filterBtns.forEach(btn => {
+        const filterVal = btn.getAttribute('data-filter');
+        
+        // Atur Kelas Aktif
+        if (state.filterType === filterVal) {
+          btn.className = 'filter-btn px-4 py-2 rounded-full text-sm font-medium transition-colors bg-blue-600 text-white shadow-md';
+        } else {
+          btn.className = 'filter-btn px-4 py-2 rounded-full text-sm font-medium transition-colors bg-gray-100 text-gray-600 hover:bg-gray-200';
+        }
+
+        // Atur Disable jika tidak ada kolom tanggal
+        if (!state.dateColumn && filterVal !== 'all') {
+          btn.disabled = true;
+          btn.title = "Kolom tanggal tidak ditemukan";
+          btn.classList.add('opacity-50', 'cursor-not-allowed');
+          btn.classList.remove('hover:bg-gray-200');
+        } else {
+          btn.disabled = false;
+          btn.title = "";
+          btn.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+      });
+
+      // Visibilitas Peringatan Tanggal
+      if (!state.dateColumn && !state.loading && !state.error && state.data.length > 0) {
+        elWarning.classList.remove('hidden');
+      } else {
+        elWarning.classList.add('hidden');
+      }
+
+      // Tampilan Berdasarkan Status
+      if (state.loading) {
+        elLoading.classList.remove('hidden');
+        elError.classList.add('hidden');
+        elEmpty.classList.add('hidden');
+        elFooter.classList.add('hidden');
+        return; // Jangan render tabel dulu
+      }
+
+      if (state.error) {
+        elLoading.classList.add('hidden');
+        elError.classList.remove('hidden');
+        elEmpty.classList.add('hidden');
+        elFooter.classList.add('hidden');
+        document.getElementById('error-message').textContent = state.error;
+        return;
+      }
+
+      elLoading.classList.add('hidden');
+      elError.classList.add('hidden');
+
+      // Terapkan Filter
+      let filteredData = state.data;
+      const now = new Date();
+
+      if (state.filterType !== 'all' && state.dateColumn) {
+        filteredData = filteredData.filter(row => {
+          const rowDate = parseDateString(row[state.dateColumn]);
+          if (!rowDate) return false;
+
+          if (state.filterType === 'today') {
+            return rowDate.getDate() === now.getDate() &&
+                   rowDate.getMonth() === now.getMonth() &&
+                   rowDate.getFullYear() === now.getFullYear();
+          }
+          if (state.filterType === 'month') {
+            return rowDate.getMonth() === now.getMonth() &&
+                   rowDate.getFullYear() === now.getFullYear();
+          }
+          if (state.filterType === 'year') {
+            return rowDate.getFullYear() === now.getFullYear();
+          }
+          return true;
+        });
+      }
+
+      if (state.searchQuery.trim() !== '') {
+        const query = state.searchQuery.toLowerCase();
+        filteredData = filteredData.filter(row => 
+          Object.values(row).some(val => 
+            String(val).toLowerCase().includes(query)
+          )
+        );
+      }
+
+      // Render Empty State atau Table
+      if (filteredData.length === 0) {
+        elEmpty.classList.remove('hidden');
+        elTableHead.innerHTML = '';
+        elTableBody.innerHTML = '';
+        elFooter.classList.add('hidden');
+      } else {
+        elEmpty.classList.add('hidden');
+        elFooter.classList.remove('hidden');
+
+        // Render Headers
+        let headersHtml = `<tr><th scope="col" class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider sticky top-0 bg-gray-50 z-0">No</th>`;
+        state.headers.forEach(header => {
+          headersHtml += `<th scope="col" class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider sticky top-0 bg-gray-50 z-0 whitespace-nowrap">
+            ${escapeHTML(header)}
+            ${header === state.dateColumn ? '<i data-lucide="calendar" class="inline-block w-3 h-3 ml-1 text-blue-500"></i>' : ''}
+          </th>`;
+        });
+        headersHtml += `</tr>`;
+        elTableHead.innerHTML = headersHtml;
+
+        // Render Rows
+        let rowsHtml = '';
+        filteredData.forEach((row, rowIndex) => {
+          rowsHtml += `<tr class="hover:bg-gray-50 transition-colors">
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-medium">${rowIndex + 1}</td>`;
+          
+          state.headers.forEach(header => {
+            rowsHtml += `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${escapeHTML(row[header] || '-')}</td>`;
+          });
+          
+          rowsHtml += `</tr>`;
+        });
+        elTableBody.innerHTML = rowsHtml;
+      }
+
+      // Update Angka di Footer
+      document.getElementById('count-filtered').textContent = filteredData.length;
+      document.getElementById('count-total').textContent = state.data.length;
+
+      // Inisialisasi ulang Ikon Lucide untuk elemen DOM yang baru dirender
+      lucide.createIcons();
+    };
+
+    // Event Listeners
+    document.addEventListener('DOMContentLoaded', () => {
+      // Init ikon pertama kali
+      lucide.createIcons();
+      
+      // Tombol muat ulang
+      document.getElementById('btn-refresh').addEventListener('click', fetchData);
+      document.getElementById('btn-retry').addEventListener('click', fetchData);
+
+      // Input pencarian
+      document.getElementById('input-search').addEventListener('input', (e) => {
+        state.searchQuery = e.target.value;
+        renderUI();
+      });
+
+      // Tombol filter
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          if (btn.disabled) return;
+          state.filterType = e.target.getAttribute('data-filter');
+          renderUI();
+        });
+      });
+
+      // Mulai ambil data
+      fetchData();
+    });
+  </script>
+
+</body>
+</html>
