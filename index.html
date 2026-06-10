@@ -195,14 +195,31 @@
 
     const parseDateString = (dateStr) => {
       if (!dateStr) return null;
-      let d = new Date(dateStr);
+      
+      // Bersihkan nama hari jika ada di awal (misal "Rabu, ")
+      let cleanStr = dateStr.replace(/^[a-zA-Z]+,\s*/, '').trim();
+
+      let d = new Date(cleanStr);
       if (!isNaN(d.getTime())) return d;
 
-      const parts = dateStr.split(/[-/\s]/);
-      if (parts.length >= 3) {
-        const p1 = parseInt(parts[0], 10);
-        const p2 = parseInt(parts[1], 10);
-        const p3 = parseInt(parts[2], 10);
+      // Cek format Indonesia (DD Bulan YYYY)
+      const idMonths = { 'januari': 0, 'februari': 1, 'maret': 2, 'april': 3, 'mei': 4, 'juni': 5, 'juli': 6, 'agustus': 7, 'september': 8, 'oktober': 9, 'november': 10, 'desember': 11 };
+      const partsStr = cleanStr.toLowerCase().split(/[-/\s]/);
+      
+      if (partsStr.length >= 3) {
+        // Cek jika teks kedua adalah nama bulan bahasa Indonesia
+        if (isNaN(partsStr[1]) && idMonths[partsStr[1]] !== undefined) {
+          const day = parseInt(partsStr[0], 10);
+          const month = idMonths[partsStr[1]];
+          const year = parseInt(partsStr[2], 10);
+          d = new Date(year, month, day);
+          if (!isNaN(d.getTime())) return d;
+        }
+
+        // Parsing fallback angka biasa
+        const p1 = parseInt(partsStr[0], 10);
+        const p2 = parseInt(partsStr[1], 10);
+        const p3 = parseInt(partsStr[2], 10);
         
         if (p1 > 1000) d = new Date(p1, p2 - 1, p3);
         else d = new Date(p3, p2 - 1, p1);
@@ -251,6 +268,37 @@
           }
         }
         state.dateColumn = detectedDateCol;
+
+        // --- Logika untuk Memisahkan Jam dari Tanggal ---
+        if (detectedDateCol) {
+          const dateColIndex = state.headers.indexOf(detectedDateCol);
+          if (dateColIndex !== -1 && !state.headers.includes('Jam')) {
+            // Tambahkan header "Jam" tepat setelah kolom tanggal
+            state.headers.splice(dateColIndex + 1, 0, 'Jam');
+            
+            // Proses pemisahan
+            state.data.forEach(row => {
+              const fullDateTime = row[detectedDateCol] || '';
+              const parts = fullDateTime.trim().split(/\s+/);
+              
+              if (parts.length > 1) {
+                // Ambil kata terakhir
+                const lastPart = parts[parts.length - 1];
+                
+                // Cek apakah kata terakhir mengandung titik dua (:) yang menandakan format waktu
+                if (lastPart.includes(':')) {
+                  row['Jam'] = lastPart;
+                  // Sisa kata sebelumnya digabung kembali menjadi tanggal
+                  row[detectedDateCol] = parts.slice(0, -1).join(' '); 
+                } else {
+                  row['Jam'] = '-';
+                }
+              } else {
+                row['Jam'] = '-';
+              }
+            });
+          }
+        }
 
       } catch (err) {
         state.error = err.message;
@@ -386,6 +434,7 @@
           headersHtml += `<th scope="col" class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider sticky top-0 bg-gray-50 z-0 whitespace-nowrap">
             ${escapeHTML(header)}
             ${header === state.dateColumn ? '<i data-lucide="calendar" class="inline-block w-3 h-3 ml-1 text-blue-500"></i>' : ''}
+            ${header === 'Jam' ? '<i data-lucide="clock" class="inline-block w-3 h-3 ml-1 text-orange-500"></i>' : ''}
           </th>`;
         });
         headersHtml += `</tr>`;
@@ -417,6 +466,9 @@
               cellHtml = `<a href="${encodeURI(cellContent.trim())}" target="_blank" class="text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1 font-medium" title="${escapeHTML(cellContent)}">
                 <i data-lucide="external-link" class="w-3 h-3"></i> Buka Link / Peta
               </a>`;
+            } else if (header === 'Jam') {
+              // BOLD PADA KOLOM JAM
+              cellHtml = `<span class="font-bold text-gray-900 text-[15px]">${escapeHTML(cellContent)}</span>`;
             }
 
             rowsHtml += `<td class="${tdClass}" title="${!isUrl ? escapeHTML(cellContent) : ''}">${cellHtml}</td>`;
